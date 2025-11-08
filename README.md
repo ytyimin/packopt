@@ -22,6 +22,7 @@ Read about the challenge [here](https://docs.google.com/document/d/1606QUnIhZb2m
 |--------|----------|
 | `check_constraints.py` | Validates that a participant’s box files satisfy all dataset constraints. |
 | `scoring.py` | Calculates the score for a single submission using the given inputs, demand, and constraints. |
+| `evaluate.py`| 	Runs scoring across all 10 datasets for one submission. |
 
 ---
 
