@@ -4,6 +4,8 @@ This repository contains all data and scripts for the **PackOpt Supply Chain Opt
 
 Read about the challenge [here](https://docs.google.com/document/d/1606QUnIhZb2mcfHLsYnpekRMgBk8bFReKyUE58neie4/edit?usp=sharing).  
 
+Check the leader board [here](https://ytyimin.github.io/packopt/).
+
 ---
 
 ## 🗂️ Repository Structure
