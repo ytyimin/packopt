@@ -4,6 +4,8 @@ This repository contains all data and scripts for the **PackOpt Supply Chain Opt
 
 Read about the challenge [here](https://docs.google.com/document/d/1606QUnIhZb2mcfHLsYnpekRMgBk8bFReKyUE58neie4/edit?usp=sharing).  
 
+Sign up competition team information here [8:00 - 10:30am session](https://docs.google.com/spreadsheets/d/1TfOECLzeFd8asn13rkZQFWA20jM5qluZfvzmyl_gX4c/edit?usp=sharing) or [10:45 - 1:15pm session](https://docs.google.com/spreadsheets/d/1O72MAWO0IQMS9XzJa_fjbwqEGSaq8Mg_Mp4I_NmXOWk/edit?usp=sharing).
+
 Check the leader board [here](https://ytyimin.github.io/packopt/).
 
 ---
