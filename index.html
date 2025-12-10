@@ -15,9 +15,11 @@
     .controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
     input[type=text]{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px 10px;border-radius:8px;color:inherit}
     select{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px;border-radius:8px;color:inherit}
+    select option {background:#0b1320; color: #e6eef6;}
     table{width:100%;border-collapse:collapse;margin-top:12px}
     th,td{padding:10px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.035)}
-    th{cursor:pointer;user-select:none;font-weight:600}
+    th{cursor:pointer;user-select:none;font-weight:600; white-space: nowrap;}
+    th:hover{background:rgba(255,255,255,0.05);}
     th .sort{opacity:0.6;margin-left:8px;font-size:12px}
     tr:hover td{background:linear-gradient(90deg,rgba(255,255,255,0.012),transparent)}
     .muted{color:var(--muted)}
@@ -40,15 +42,20 @@
     <div class="card">
       <div class="controls">
         <input id="search" type="text" placeholder="Search players or teams..." />
+        
         <select id="perPage">
+          <option value="10000" selected>All Rows</option>
           <option value="10">10 per page</option>
           <option value="25">25 per page</option>
           <option value="50">50 per page</option>
         </select>
+
         <select id="sortField">
-          <option value="score">Sort by score (desc)</option>
-          <option value="name">Sort by name (asc)</option>
+          <option value="Average Score">Sort by Score (Desc)</option>
+          <option value="Team Name">Sort by Name (Asc)</option>
+          <option value="Status Code">Sort by Status (Asc)</option>
         </select>
+
         <button id="refresh" class="btn">Refresh</button>
         <div style="margin-left:auto" class="muted small">Data source: <span id="sourcePath" class="pill">(configure)</span></div>
       </div>
@@ -58,12 +65,12 @@
           <thead id="thead"></thead>
           <tbody id="tbody"></tbody>
         </table>
-        <p> Note on status of your submission:
-        <ul>
+        <p class="muted small" style="margin-top: 20px;"> Note on status of your submission:</p>
+        <ul class="muted small">
           <li>0: Valid (Success)</li>
           <li>1: Constraint Violation (Infeasible solution)</li>
           <li>2: Missing Files (Config/Alloc files not found)</li>
-          <li>3: Code Crash (Python errors, dimension mismatches, corrupted zips)</p></li>
+          <li>3: Code Crash (Python errors, dimension mismatches, corrupted zips)</li>
         </ul>
       </div>
 
@@ -79,13 +86,11 @@
 
   <script>
     // -------------------------- CONFIG --------------------------
-    // Edit these defaults directly in the file or use ?owner=...&repo=... in the URL
     const CONFIG = {
-      owner: 'ytyimin',         // e.g. 'your-github-username'
-      repo: 'packopt',          // e.g. 'your-repo'
-      branch: 'main',    // e.g. 'main' or 'gh-pages'
-      filePath: 'final_team_scores.csv', // relative path in the repo
-      // If you prefer, pass ?rawUrl=https://raw.githubusercontent.com/owner/repo/branch/path
+      owner: 'ytyimin',       
+      repo: 'packopt',          
+      branch: 'main',    
+      filePath: 'final_team_scores.csv', 
     };
     // ------------------------ END CONFIG ------------------------
 
@@ -108,9 +113,8 @@
     }
 
     function parseCSV(text){
-      // Simple CSV parser (handles quoted fields). Returns array of objects using header row.
       const rows = [];
-      let i=0; let cur=''; let row=[]; let inQuotes=false; let col=[];
+      let i=0; let cur=''; let row=[]; let inQuotes=false;
       while(i<text.length){
         const ch=text[i];
         if(inQuotes){
@@ -126,6 +130,7 @@
       }
       if(cur!==''||row.length){ row.push(cur); rows.push(row) }
       if(rows.length===0) return [];
+      // Clean headers
       const header = rows[0].map(h=>h.trim());
       const result = [];
       for(let r=1;r<rows.length;r++){
@@ -159,14 +164,13 @@
         const text = await res.text();
         if(rawUrl.endsWith('.json')){
           data = JSON.parse(text);
-        } else if(rawUrl.endsWith('.csv') || rawUrl.indexOf('.csv')!==-1){
-          data = parseCSV(text);
         } else {
           // try JSON then CSV
           try{ data = JSON.parse(text) }catch(e){ data = parseCSV(text) }
         }
         if(!Array.isArray(data)) throw new Error('Data is not an array');
-        // normalize keys: trim
+        
+        // Normalize: trim values
         data = data.map(row=>{
           const obj={};
           Object.keys(row).forEach(k=>{ obj[k.trim()] = (row[k]===null||row[k]===undefined)? '': String(row[k]).trim() })
@@ -179,77 +183,39 @@
     function initTable(){
       currentPage = 1;
       if(data.length===0){ thead.innerHTML=''; tbody.innerHTML=''; summary.textContent='No rows found'; return }
+      
       const columns = Object.keys(data[0]);
-      // Build thead
-      thead.innerHTML = '<tr>'+columns.map(col=>`<th data-col="${col}">${escapeHtml(col)} <span class="sort">↕</span></th>`).join('')+'</tr>';
-      // Attach click to headers
-      thead.querySelectorAll('th').forEach(th=>th.addEventListener('click',()=>{
-        const col = th.getAttribute('data-col');
-        // toggle sortField
-        if(sortField.value === col){ sortField.value = col; } else { sortField.value = col }
-        applyFiltersAndRender();
-      }))
+      
+      // Build thead with clickable headers
+      thead.innerHTML = '<tr>'+columns.map(col=>
+        `<th data-col="${escapeHtml(col)}">
+           ${escapeHtml(col)} <span class="sort">↕</span>
+         </th>`
+      ).join('')+'</tr>';
+
+      // Attach click events for sorting
+      thead.querySelectorAll('th').forEach(th=>{
+        th.addEventListener('click', ()=>{
+          const col = th.getAttribute('data-col');
+          sortField.value = col; // Update dropdown
+          // If the value didn't exist in dropdown, we might want to add it, but for now just sort:
+          applyFiltersAndRender(col);
+        })
+      });
+
+      // Default Sort: Explicitly look for 'Average Score'
+      if(columns.includes('Average Score')) {
+        sortField.value = 'Average Score';
+      }
+      
       applyFiltersAndRender();
     }
 
     function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
 
-    function applyFiltersAndRender(){
+    function applyFiltersAndRender(forceSortField){
       const q = search.value.trim().toLowerCase();
-      // filter
+      
+      // Filter
       if(q==='') filtered = data.slice();
-      else filtered = data.filter(row=> Object.values(row).some(v=> String(v).toLowerCase().includes(q)));
-      // sort
-      const sf = sortField.value || 'score';
-      filtered.sort((a,b)=>{
-        const va = a[sf] || '';
-        const vb = b[sf] || '';
-        // numeric if both numeric
-        if(isNumeric(va) && isNumeric(vb)) return parseFloat(vb) - parseFloat(va); // desc numeric
-        // if field is name, sort asc
-        if(sf.toLowerCase().includes('name')) return String(va).localeCompare(String(vb));
-        // fallback: desc
-        return String(vb).localeCompare(String(va));
-      })
-      renderPage();
-    }
-
-    function renderPage(){
-      const per = parseInt(perPage.value,10);
-      const total = filtered.length;
-      const pages = Math.max(1, Math.ceil(total / per));
-      if(currentPage > pages) currentPage = pages;
-      const start = (currentPage-1)*per;
-      const pageRows = filtered.slice(start, start+per);
-      // render tbody
-      tbody.innerHTML = pageRows.map(r=>{
-        const cols = Object.keys(r).map(k=>`<td>${escapeHtml(r[k])}</td>`).join('');
-        return `<tr>${cols}</tr>`;
-      }).join('') || '<tr><td colspan="100%" class="muted">No rows to show</td></tr>';
-      summary.textContent = `${total} rows • showing ${start+1}-${Math.min(start+pageRows.length,total)} ` + (total?`of ${total}`:'');
-      pageInfo.textContent = `${currentPage}/${pages}`;
-    }
-
-    // Event wiring
-    search.addEventListener('input',()=>{ currentPage =1; applyFiltersAndRender(); });
-    perPage.addEventListener('change',()=>{ currentPage =1; renderPage(); });
-    sortField.addEventListener('change',()=>{ applyFiltersAndRender(); });
-    document.getElementById('refresh').addEventListener('click',fetchData);
-    prevBtn.addEventListener('click',()=>{ if(currentPage>1){ currentPage--; renderPage(); } });
-    nextBtn.addEventListener('click',()=>{ const per = parseInt(perPage.value,10); const pages = Math.max(1, Math.ceil(filtered.length / per)); if(currentPage<pages){ currentPage++; renderPage(); } });
-
-    // bootstrap
-    (function(){
-      // If user provided owner/repo via query params but left CONFIG blank, we show built URL
-      const raw = buildRawUrlFromConfig();
-      if(raw) sourcePath.textContent = raw;
-      fetchData();
-    })();
-  </script>
-</body>
-</html>
-
-
-
-
-
+      else filtered = data.filter(row=> Object.values(row).some(v=> String(v).toLowerCase().includes
