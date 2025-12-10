@@ -27,6 +27,7 @@
     .footer{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
     .btn{background:linear-gradient(90deg,var(--accent),var(--accent-2));padding:8px 12px;border-radius:10px;color:#07212a;border:none;cursor:pointer}
     .small{font-size:13px}
+    .error-msg{ color: #ff6b6b; background: rgba(255,0,0,0.1); padding: 10px; border-radius: 8px; margin-top: 10px; display:none; }
     @media (max-width:720px){th,td{padding:8px}}
   </style>
 </head>
@@ -57,14 +58,16 @@
         </select>
 
         <button id="refresh" class="btn">Refresh</button>
-        <div style="margin-left:auto" class="muted small">Data source: <span id="sourcePath" class="pill">(configure)</span></div>
       </div>
+
+      <div id="errorDisplay" class="error-msg"></div>
 
       <div id="tableWrap">
         <table id="leaderboard">
           <thead id="thead"></thead>
           <tbody id="tbody"></tbody>
         </table>
+        
         <p class="muted small" style="margin-top: 20px;"> Note on status of your submission:</p>
         <ul class="muted small">
           <li>0: Valid (Success)</li>
@@ -75,7 +78,7 @@
       </div>
 
       <div class="footer small">
-        <div id="summary" class="muted">Loading...</div>
+        <div id="summary" class="muted">Initializing...</div>
         <div>
           <button id="prev" class="pill">Prev</button>
           <span id="pageInfo" class="muted" style="margin:0 8px">1</span>
@@ -86,31 +89,14 @@
 
   <script>
     // -------------------------- CONFIG --------------------------
+    // Uses relative path. Ensure final_team_scores.csv is in the same folder.
     const CONFIG = {
-      owner: 'ytyimin',       
-      repo: 'packopt',          
-      branch: 'main',    
-      filePath: 'final_team_scores.csv', 
+      file: 'final_team_scores.csv' 
     };
     // ------------------------ END CONFIG ------------------------
 
     // Utilities
     function $(id){return document.getElementById(id)}
-
-    function buildRawUrlFromConfig(){
-      if (getQueryParam('rawUrl')) return getQueryParam('rawUrl');
-      const owner = getQueryParam('owner') || CONFIG.owner;
-      const repo = getQueryParam('repo') || CONFIG.repo;
-      const branch = getQueryParam('branch') || CONFIG.branch;
-      const filePath = getQueryParam('filePath') || CONFIG.filePath;
-      if (!owner || !repo || !filePath) return null;
-      return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
-    }
-
-    function getQueryParam(name){
-      const params = new URLSearchParams(location.search);
-      return params.get(name);
-    }
 
     function parseCSV(text){
       const rows = [];
@@ -130,11 +116,11 @@
       }
       if(cur!==''||row.length){ row.push(cur); rows.push(row) }
       if(rows.length===0) return [];
-      // Clean headers
+      
       const header = rows[0].map(h=>h.trim());
       const result = [];
       for(let r=1;r<rows.length;r++){
-        if(rows[r].length===1 && rows[r][0]==='') continue;
+        if(rows[r].length===1 && rows[r][0]==='') continue; // skip empty lines
         const obj = {};
         for(let c=0;c<header.length;c++) obj[header[c]] = rows[r][c]===undefined? '': rows[r][c];
         result.push(obj);
@@ -152,58 +138,71 @@
     // DOM refs
     const thead = $('thead'); const tbody = $('tbody'); const search = $('search');
     const perPage = $('perPage'); const sortField = $('sortField'); const summary = $('summary');
-    const prevBtn = $('prev'); const nextBtn = $('next'); const pageInfo = $('pageInfo'); const sourcePath = $('sourcePath');
+    const prevBtn = $('prev'); const nextBtn = $('next'); const pageInfo = $('pageInfo');
+    const errorDisplay = $('errorDisplay');
 
     async function fetchData(){
-      const rawUrl = buildRawUrlFromConfig();
-      sourcePath.textContent = rawUrl || '(configure owner/repo/filePath)';
-      if(!rawUrl){ summary.textContent = 'Configure owner/repo/filePath in the file or via query string.'; return }
+      summary.textContent = 'Loading data...';
+      errorDisplay.style.display = 'none';
+      
       try{
-        const res = await fetch(rawUrl);
-        if(!res.ok) throw new Error('Fetch failed: '+res.status);
-        const text = await res.text();
-        if(rawUrl.endsWith('.json')){
-          data = JSON.parse(text);
-        } else {
-          // try JSON then CSV
-          try{ data = JSON.parse(text) }catch(e){ data = parseCSV(text) }
-        }
-        if(!Array.isArray(data)) throw new Error('Data is not an array');
+        // Fetch relative path
+        const res = await fetch(CONFIG.file);
         
-        // Normalize: trim values
+        if(!res.ok) {
+          throw new Error(`Failed to load ${CONFIG.file} (Status: ${res.status} ${res.statusText}). Ensure the file exists in the same repository folder.`);
+        }
+        
+        const text = await res.text();
+        
+        // Basic check to see if we got HTML back instead of CSV (common 404 page issue)
+        if(text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) {
+            throw new Error(`File not found (Server returned HTML instead of CSV). Check filename spelling: ${CONFIG.file}`);
+        }
+
+        data = parseCSV(text);
+        
+        if(!Array.isArray(data) || data.length === 0) {
+            throw new Error('CSV parsed but returned no rows. Check file content.');
+        }
+
+        // Clean data keys/values
         data = data.map(row=>{
           const obj={};
           Object.keys(row).forEach(k=>{ obj[k.trim()] = (row[k]===null||row[k]===undefined)? '': String(row[k]).trim() })
           return obj;
         })
+        
         initTable();
-      }catch(err){ summary.textContent = 'Error loading data: '+err.message }
+      }catch(err){ 
+        console.error(err);
+        summary.textContent = 'Error.';
+        errorDisplay.style.display = 'block';
+        errorDisplay.textContent = err.message;
+      }
     }
 
     function initTable(){
       currentPage = 1;
-      if(data.length===0){ thead.innerHTML=''; tbody.innerHTML=''; summary.textContent='No rows found'; return }
-      
       const columns = Object.keys(data[0]);
       
-      // Build thead with clickable headers
+      // Build Headers
       thead.innerHTML = '<tr>'+columns.map(col=>
         `<th data-col="${escapeHtml(col)}">
            ${escapeHtml(col)} <span class="sort">↕</span>
          </th>`
       ).join('')+'</tr>';
 
-      // Attach click events for sorting
+      // Click to sort
       thead.querySelectorAll('th').forEach(th=>{
         th.addEventListener('click', ()=>{
           const col = th.getAttribute('data-col');
-          sortField.value = col; // Update dropdown
-          // If the value didn't exist in dropdown, we might want to add it, but for now just sort:
+          sortField.value = col; 
           applyFiltersAndRender(col);
         })
       });
 
-      // Default Sort: Explicitly look for 'Average Score'
+      // Default Sort: Average Score
       if(columns.includes('Average Score')) {
         sortField.value = 'Average Score';
       }
@@ -218,4 +217,72 @@
       
       // Filter
       if(q==='') filtered = data.slice();
-      else filtered = data.filter(row=> Object.values(row).some(v=> String(v).toLowerCase().includes
+      else filtered = data.filter(row=> Object.values(row).some(v=> String(v).toLowerCase().includes(q)));
+      
+      // Sort
+      const sf = forceSortField || sortField.value || Object.keys(data[0])[0]; 
+      
+      filtered.sort((a,b)=>{
+        const va = a[sf];
+        const vb = b[sf];
+        
+        // Check if sorting by Score (Desc)
+        const isScore = sf.toLowerCase().includes('score');
+
+        if(isNumeric(va) && isNumeric(vb)){
+            const na = parseFloat(va);
+            const nb = parseFloat(vb);
+            // If score, Descending (nb - na)
+            if(isScore) return nb - na; 
+            // Else Ascending
+            return na - nb; 
+        }
+        return String(va).localeCompare(String(vb));
+      })
+
+      renderPage();
+    }
+
+    function renderPage(){
+      const perVal = parseInt(perPage.value,10);
+      const per = perVal > 0 ? perVal : 10000;
+      const total = filtered.length;
+      const pages = Math.max(1, Math.ceil(total / per));
+      
+      if(currentPage > pages) currentPage = pages;
+      if(currentPage < 1) currentPage = 1;
+
+      const start = (currentPage-1)*per;
+      const pageRows = filtered.slice(start, start+per);
+      
+      tbody.innerHTML = pageRows.map(r=>{
+        const cols = Object.keys(r).map(k=>`<td>${escapeHtml(r[k])}</td>`).join('');
+        return `<tr>${cols}</tr>`;
+      }).join('') || '<tr><td colspan="100%" class="muted">No rows to show</td></tr>';
+      
+      summary.textContent = `${total} rows`;
+      if(per < total) summary.textContent += ` • showing ${start+1}-${Math.min(start+pageRows.length,total)}`;
+      pageInfo.textContent = `${currentPage}/${pages}`;
+      
+      prevBtn.disabled = currentPage <= 1;
+      prevBtn.style.opacity = currentPage <= 1 ? 0.5 : 1;
+      nextBtn.disabled = currentPage >= pages;
+      nextBtn.style.opacity = currentPage >= pages ? 0.5 : 1;
+    }
+
+    search.addEventListener('input',()=>{ currentPage = 1; applyFiltersAndRender(); });
+    perPage.addEventListener('change',()=>{ currentPage = 1; renderPage(); });
+    sortField.addEventListener('change',()=>{ applyFiltersAndRender(); });
+    document.getElementById('refresh').addEventListener('click', fetchData);
+    prevBtn.addEventListener('click',()=>{ if(currentPage>1){ currentPage--; renderPage(); } });
+    nextBtn.addEventListener('click',()=>{ 
+      const per = parseInt(perPage.value,10); 
+      const pages = Math.max(1, Math.ceil(filtered.length / per)); 
+      if(currentPage<pages){ currentPage++; renderPage(); } 
+    });
+
+    // Start
+    fetchData();
+  </script>
+</body>
+</html>
